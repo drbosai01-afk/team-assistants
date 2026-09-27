@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Команда ассистентов</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/webapp/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>👥 Команда</h1>
+                <div class="subtitle">Три ИИ-агента на связи</div>
+            </div>
+            <div class="role" id="role-badge">...</div>
+        </div>
+
+        <div class="notice">
+            <strong>Как пользоваться:</strong> выбери агента ниже → пиши задачу обычным текстом → получи ответ. История сохраняется.
+        </div>
+
+        <div class="section-title">Твоя команда</div>
+        <div id="agents-list">
+            <div class="loading"><div class="spinner"></div>Загрузка...</div>
+        </div>
+
+        <div id="admin-link" style="display: none;">
+            <div class="section-title">Управление</div>
+            <a href="/webapp/admin.html" class="agent-card">
+                <div class="agent-icon">⚙️</div>
+                <div class="agent-info">
+                    <h3>Админ-панель</h3>
+                    <p>Управление клиентами и доступом</p>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const user = tg.initDataUnsafe?.user;
+        const userId = user?.id || 0;
+
+        async function loadProfile() {
+            try {
+                const res = await fetch(`/api/me?user_id=${userId}`);
+                const data = await res.json();
+                document.getElementById('role-badge').textContent = data.role === 'admin' ? '⚙️ Админ' : '👤 Клиент';
+                if (data.role === 'admin') {
+                    document.getElementById('admin-link').style.display = 'block';
+                }
+            } catch (e) {
+                document.getElementById('role-badge').textContent = 'гость';
+            }
+        }
+
+        async function loadAgents() {
+            try {
+                const res = await fetch('/api/agents');
+                const agents = await res.json();
+                const container = document.getElementById('agents-list');
+                container.innerHTML = agents.map(a => `
+                    <a href="/webapp/chat.html?agent=${a.id}" class="agent-card">
+                        <div class="agent-icon">${a.icon}</div>
+                        <div class="agent-info">
+                            <h3>${a.name}</h3>
+                            <p>${a.short}</p>
+                        </div>
+                    </a>
+                `).join('');
+            } catch (e) {
+                document.getElementById('agents-list').innerHTML = '<div class="loading">⚠️ Не удалось загрузить</div>';
+            }
+        }
+
+        loadProfile();
+        loadAgents();
+    </script>
+</body>
+  </html>
