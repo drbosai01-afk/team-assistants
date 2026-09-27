@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Админ-панель</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/webapp/style.css">
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="goBack()">← Назад</button>
+
+        <div class="header">
+            <div>
+                <h1>⚙️ Админ-панель</h1>
+                <div class="subtitle">Управление клиентами</div>
+            </div>
+            <div class="role">⚙️ Админ</div>
+        </div>
+
+        <div class="section-title">Создать клиента</div>
+        <div class="notice">
+            Каждый клиент — изолированное пространство со своими чатами.
+        </div>
+
+        <input id="client-name" placeholder="Название (например: Салон Бархат)" style="
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--secondary-bg);
+            background: var(--secondary-bg);
+            color: var(--text);
+            font-size: 14px;
+            margin-bottom: 8px;
+            font-family: inherit;
+        ">
+        <input id="client-tg-id" placeholder="Telegram ID клиента (число)" style="
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--secondary-bg);
+            background: var(--secondary-bg);
+            color: var(--text);
+            font-size: 14px;
+            margin-bottom: 8px;
+            font-family: inherit;
+        ">
+        <button class="btn" onclick="createClient()">+ Создать и привязать</button>
+
+        <div class="section-title">Мои клиенты</div>
+        <div id="clients-list">
+            <div class="loading"><div class="spinner"></div>Загрузка...</div>
+        </div>
+
+        <div class="notice" style="margin-top: 24px;">
+            <strong>Как узнать Telegram ID клиента:</strong><br>
+            Попроси клиента написать боту <code>@userinfobot</code>.
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const user = tg.initDataUnsafe?.user;
+        const ownerId = user?.id || 0;
+
+        function goBack() {
+            location.href = '/webapp/index.html';
+        }
+
+        async function loadClients() {
+            try {
+                const res = await fetch(`/api/clients?owner_id=${ownerId}`);
+                const clients = await res.json();
+                const container = document.getElementById('clients-list');
+                if (clients.length === 0) {
+                    container.innerHTML = '<div class="notice">Пока нет клиентов. Создай первого — заполни форму выше.</div>';
+                    return;
+                }
+                container.innerHTML = clients.map(c => `
+                    <div class="client-card">
+                        <div>
+                            <h4>${escapeHtml(c.name)}</h4>
+                            <div class="id">ID: ${c.id}</div>
+                        </div>
+                        <div class="users">${c.users.length} 👤</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('clients-list').innerHTML = '<div class="loading">⚠️ Ошибка</div>';
+            }
+        }
+
+        async function createClient() {
+            const name = document.getElementById('client-name').value.trim();
+            const tgIdRaw = document.getElementById('client-tg-id').value.trim();
+            if (!name || !tgIdRaw) {
+                tg.showAlert('Заполни оба поля');
+                return;
+            }
+            const tgId = parseInt(tgIdRaw, 10);
+            if (isNaN(tgId)) {
+                tg.showAlert('Telegram ID должен быть числом');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/clients', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({owner_id: ownerId, name: name}),
+                });
+                const client = await res.json();
+
+                await fetch('/api/bind', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: tgId, client_id: client.id}),
+                });
+
+                document.getElementById('client-name').value = '';
+                document.getElementById('client-tg-id').value = '';
+                tg.HapticFeedback?.notificationOccurred('success');
+                tg.showAlert(`✅ Клиент «${name}» создан`);
+                loadClients();
+            } catch (e) {
+                tg.showAlert('Ошибка: ' + e.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        loadClients();
+    </script>
+</body>
+</html>
