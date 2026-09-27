@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Чат с агентом</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/webapp/style.css">
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="goBack()">← Назад</button>
+
+        <div class="header">
+            <div class="agent-icon" id="agent-icon" style="width: 48px; height: 48px; font-size: 28px;">...</div>
+            <div style="flex: 1; margin-left: 12px;">
+                <h1 id="agent-name">Загрузка...</h1>
+                <div class="subtitle" id="agent-short"></div>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="messages" id="messages">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    История загружается...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-bar">
+        <textarea id="input" placeholder="Напиши задачу..." rows="1"></textarea>
+        <button id="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const user = tg.initDataUnsafe?.user;
+        const userId = user?.id || 0;
+
+        const params = new URLSearchParams(location.search);
+        const agentId = params.get('agent') || 'master';
+        let agentName = '';
+
+        function goBack() {
+            location.href = '/webapp/index.html';
+        }
+
+        const input = document.getElementById('input');
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function loadAgent() {
+            const res = await fetch('/api/agents');
+            const agents = await res.json();
+            const agent = agents.find(a => a.id === agentId);
+            if (agent) {
+                agentName = agent.name;
+                document.getElementById('agent-icon').textContent = agent.icon;
+                document.getElementById('agent-name').textContent = agent.name;
+                document.getElementById('agent-short').textContent = agent.short;
+            }
+        }
+
+        async function loadHistory() {
+            const res = await fetch(`/api/history?user_id=${userId}&agent_id=${agentId}`);
+            const history = await res.json();
+            const container = document.getElementById('messages');
+            if (history.length === 0) {
+                container.innerHTML = '<div class="notice"><strong>Начни диалог.</strong> Опиши задачу простым языком.</div>';
+            } else {
+                container.innerHTML = history.map(m => renderMessage(m)).join('');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function renderMessage(m) {
+            const time = new Date(m.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+            return `<div class="message ${m.role}">${escapeHtml(m.content)}<div class="meta">${time}</div></div>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function sendMessage() {
+            const text = input.value.trim();
+            if (!text) return;
+
+            const btn = document.getElementById('send-btn');
+            btn.disabled = true;
+
+            const container = document.getElementById('messages');
+            container.insertAdjacentHTML('beforeend', renderMessage({role: 'user', content: text, ts: new Date().toISOString()}));
+            input.value = '';
+            input.style.height = 'auto';
+            container.scrollTop = container.scrollHeight;
+
+            const typingId = 'typing-' + Date.now();
+            container.insertAdjacentHTML('beforeend', `<div class="message assistant" id="${typingId}"><em>${agentName} печатает...</em></div>`);
+            container.scrollTop = container.scrollHeight;
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId, agent_id: agentId, message: text}),
+                });
+                const data = await res.json();
+                document.getElementById(typingId).remove();
+                container.insertAdjacentHTML('beforeend', renderMessage({role: 'assistant', content: data.reply, ts: new Date().toISOString()}));
+                container.scrollTop = container.scrollHeight;
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            } catch (e) {
+                document.getElementById(typingId)?.remove();
+                container.insertAdjacentHTML('beforeend', `<div class="message assistant">⚠️ Ошибка: ${e.message}</div>`);
+            } finally {
+                btn.disabled = false;
+                input.focus();
+            }
+        }
+
+        loadAgent();
+        loadHistory();
+    </script>
+</body>
+</html>
